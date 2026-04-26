@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StudyMate AI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  .prose pre{background:#f1f5f9;padding:.75rem;border-radius:.5rem;overflow-x:auto}
+  .dark .prose pre{background:#1e293b}
+  .prose code{font-family:ui-monospace,monospace}
+  .tab-active{background:#4f46e5;color:#fff}
+</style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 dark:text-slate-100 min-h-screen">
+<div id="app"></div>
+
+<script>
+const API = location.origin;
+let token = localStorage.getItem("smate_token") || "";
+let user = null;
+let darkMode = localStorage.getItem("smate_dark") === "1";
+if (darkMode) document.documentElement.classList.add("dark");
+
+const $ = (id) => document.getElementById(id);
+const h = (html) => { $("app").innerHTML = html; };
+const md = (s) => marked.parse(s || "");
+const esc = (s) => (s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, opts = {}) {
+  opts.headers = opts.headers || {};
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  if (opts.json) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(opts.json);
+    delete opts.json;
+  }
+  const r = await fetch(API + path, opts);
+  if (!r.ok) {
+    const err = await r.text();
+    throw new Error(err || r.statusText);
+  }
+  return r.json();
+}
+
+function toggleDark() {
+  darkMode = !darkMode;
+  localStorage.setItem("smate_dark", darkMode ? "1" : "0");
+  document.documentElement.classList.toggle("dark", darkMode);
+}
+
+function logout() {
+  token = ""; localStorage.removeItem("smate_token"); user = null; render();
+}
+
+async function render() {
+  if (!token) return authView();
+  try {
+    user = await api("/api/me");
+    homeView();
+  } catch {
+    logout();
+  }
+}
+
+function authView() {
+  h(`
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-md">
+      <h1 class="text-4xl font-bold text-center mb-2">\u{1F393} StudyMate AI</h1>
+      <p class="text-center text-slate-500 mb-6">Your AI-powered study companion</p>
+      <div class="bg-white dark:bg-slate-800 rounded-2xl shadow p-6 space-y-3">
+        <input id="email" type="email" placeholder="Email" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+        <input id="pw" type="password" placeholder="Password (min 6 chars)" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+        <input id="grade" placeholder="Grade (e.g. 10)" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+        <select id="lang" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600">
+          <option>English</option><option>Hindi</option><option>Spanish</option><option>French</option>
+          <option>German</option><option>Arabic</option><option>Chinese</option>
+        </select>
+        <div id="err" class="text-red-500 text-sm"></div>
+        <div class="flex gap-2">
+          <button onclick="doLogin()" class="flex-1 bg-indigo-600 text-white py-2 rounded font-medium">Log in</button>
+          <button onclick="doSignup()" class="flex-1 border border-indigo-600 text-indigo-600 py-2 rounded font-medium">Sign up</button>
+        </div>
+      </div>
+      <p class="text-center text-xs text-slate-400 mt-4">Default admin: admin@studymate.local / admin1234</p>
+    </div>
+  </div>`);
+}
+
+async function doSignup() {
+  try {
+    const data = await api("/api/auth/signup", { method: "POST", json: {
+      email: $("email").value, password: $("pw").value,
+      grade: $("grade").value, language: $("lang").value,
+    }});
+    token = data.access_token; localStorage.setItem("smate_token", token); render();
+  } catch (e) { $("err").textContent = e.message; }
+}
+async function doLogin() {
+  try {
+    const data = await api("/api/auth/login", { method: "POST", json: {
+      email: $("email").value, password: $("pw").value
+    }});
+    token = data.access_token; localStorage.setItem("smate_token", token); render();
+  } catch (e) { $("err").textContent = e.message; }
+}
+
+let currentTab = "dashboard";
+function homeView() {
+  h(`
+  <div class="min-h-screen">
+    <header class="bg-indigo-600 text-white p-4 flex items-center justify-between">
+      <div class="font-bold text-lg">\u{1F393} StudyMate AI</div>
+      <div class="flex items-center gap-3 text-sm">
+        <span>\u{1F525} ${user.streak_count} day streak</span>
+        <span class="opacity-80">${user.email}</span>
+        <button onclick="toggleDark();render()" class="px-2 py-1 rounded hover:bg-indigo-700">\u{1F319}</button>
+        <button onclick="logout()" class="px-2 py-1 rounded hover:bg-indigo-700">Logout</button>
+      </div>
+    </header>
+    <nav class="bg-white dark:bg-slate-800 shadow flex flex-wrap gap-1 p-2 sticky top-0 z-10">
+      ${[
+        ["dashboard","\u{1F4CA} Dashboard"], ["plan","\u{1F4C5} Plan"], ["tutor","\u{1F469}\u200D\u{1F3EB} Tutor"],
+        ["docs","\u{1F4DA} Docs (RAG)"], ["search","\u{1F50D} Search"], ["notes","\u{1F4DD} Notes"],
+        ["quiz","\u{1F9E0} Quiz"], ["cards","\u{1F389} Cards"], ["code","\u{1F4BB} Code"],
+        ["pomo","\u23F1\uFE0F Pomodoro"], ["exam","\u{1F4DC} Exam"]
+      ].map(([k,l])=>`<button onclick="setTab('${k}')" class="px-3 py-1.5 rounded text-sm ${currentTab===k?'tab-active':'hover:bg-slate-100 dark:hover:bg-slate-700'}">${l}</button>`).join("")}
+    </nav>
+    <main id="main" class="max-w-5xl mx-auto p-4"></main>
+  </div>`);
+  showTab();
+}
+function setTab(t) { currentTab = t; homeView(); }
+function showTab() {
+  ({
+    dashboard: tabDashboard, plan: tabPlan, tutor: tabTutor,
+    docs: tabDocs, search: tabSearch, notes: tabNotes,
+    quiz: tabQuiz, cards: tabCards, code: tabCode,
+    pomo: tabPomo, exam: tabExam
+  })[currentTab]();
+}
+
+// ---------- Dashboard ----------
+async function tabDashboard() {
+  $("main").innerHTML = `<div class="text-slate-500">Loading...</div>`;
+  const p = await api("/api/analytics/progress");
+  $("main").innerHTML = `
+    <h2 class="text-2xl font-bold mb-4">Your progress</h2>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      ${[["\u{1F525} Streak",p.streak+" d"],["Quizzes",p.quizzes_taken],["Notes",p.notes_count],["Plans",p.plans_count],["Docs",p.docs_count]]
+        .map(([l,v])=>`<div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow text-center"><div class="text-3xl font-bold text-indigo-600">${v}</div><div class="text-xs text-slate-500">${l}</div></div>`).join("")}
+    </div>
+    <h3 class="font-semibold mb-2">Average score by topic</h3>
+    ${Object.keys(p.avg_by_topic).length===0?'<p class="text-slate-500 text-sm">Take a quiz to see stats.</p>':
+      Object.entries(p.avg_by_topic).map(([t,a])=>`
+      <div class="flex items-center gap-3 mb-1">
+        <span class="w-32 text-sm">${esc(t)}</span>
+        <div class="flex-1 bg-slate-200 dark:bg-slate-700 rounded h-2 overflow-hidden"><div class="bg-indigo-600 h-full" style="width:${a*100}%"></div></div>
+        <span class="text-sm w-12 text-right">${(a*100).toFixed(0)}%</span>
+      </div>`).join("")}
+    ${p.weak_topics.length?`<p class="mt-4 text-orange-600">\u26A0\uFE0F Weak areas: ${p.weak_topics.map(esc).join(", ")}</p>`:""}
+  `;
+}
+
+// ---------- Plan ----------
+function tabPlan() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Personalized weekly study plan</h2>
+    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow space-y-2">
+      <input id="subj" placeholder="Subjects (comma-separated)" value="Math, Physics, English" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+      <input id="hpw" type="number" value="14" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+      <textarea id="goals" placeholder="Goals" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"></textarea>
+      <input id="exam" placeholder="Exam date (YYYY-MM-DD)" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+      <button onclick="genPlan()" class="bg-indigo-600 text-white px-4 py-2 rounded">Generate</button>
+    </div>
+    <div id="planOut" class="prose dark:prose-invert max-w-none mt-4"></div>`;
+}
+async function genPlan() {
+  $("planOut").innerHTML = '<div class="text-slate-500">Generating...</div>';
+  const data = await api("/api/plans", { method:"POST", json:{
+    subjects: $("subj").value.split(",").map(s=>s.trim()).filter(Boolean),
+    hours_per_week: Number($("hpw").value), goals: $("goals").value, exam_date: $("exam").value,
+  }});
+  $("planOut").innerHTML = md(data.content);
+}
+
+// ---------- Tutor ----------
+let tutorHistory = [];
+function tabTutor() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">AI Tutor</h2>
+    <div class="flex gap-2 mb-2 text-sm">
+      <select id="style" class="p-1 border rounded dark:bg-slate-700 dark:border-slate-600">
+        <option value="step_by_step">Step-by-step</option>
+        <option value="socratic">Socratic</option>
+        <option value="exam_focused">Exam-focused</option>
+      </select>
+      <button onclick="tutorHistory=[];tabTutor()" class="px-2 border rounded">Clear</button>
+      <button onclick="voiceInput()" class="px-2 border rounded">\u{1F399}\uFE0F Voice</button>
+    </div>
+    <div id="chat" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 h-96 overflow-auto space-y-3"></div>
+    <div class="flex gap-2 mt-2">
+      <input id="q" placeholder="Ask anything..." class="flex-1 p-2 border rounded dark:bg-slate-700 dark:border-slate-600" onkeydown="if(event.key==='Enter')askTutor()"/>
+      <button onclick="askTutor()" class="bg-indigo-600 text-white px-4 rounded">Send</button>
+    </div>`;
+  renderChat();
+}
+function renderChat() {
+  $("chat").innerHTML = tutorHistory.map(m=>`
+    <div class="${m.role==='user'?'text-right':''}">
+      <div class="inline-block max-w-3xl p-3 rounded-lg ${m.role==='user'?'bg-indigo-100 dark:bg-indigo-900':'bg-slate-100 dark:bg-slate-700'}">
+        <div class="text-xs font-semibold opacity-70 mb-1">${m.role==='user'?'You':'\u{1F916} Tutor'}</div>
+        <div class="prose dark:prose-invert max-w-none text-sm">${md(m.content)}</div>
+      </div>
+    </div>`).join("");
+  $("chat").scrollTop = $("chat").scrollHeight;
+}
+async function askTutor() {
+  const q = $("q").value.trim(); if (!q) return;
+  $("q").value = "";
+  tutorHistory.push({ role:"user", content:q }); renderChat();
+  const data = await api("/api/tutor", { method:"POST", json:{
+    question:q, history:tutorHistory.slice(-10), style:$("style").value
+  }});
+  tutorHistory.push({ role:"assistant", content:data.answer }); renderChat();
+  speak(data.answer);
+}
+function voiceInput() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return alert("Voice not supported in this browser");
+  const r = new SR(); r.lang = navigator.language;
+  r.onresult = e => { $("q").value = e.results[0][0].transcript; askTutor(); };
+  r.start();
+}
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text.slice(0, 400));
+  speechSynthesis.speak(u);
+}
+
+// ---------- Docs (RAG) ----------
+async function tabDocs() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Chat with your documents</h2>
+    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow space-y-2">
+      <div class="flex gap-2 flex-wrap">
+        <input id="docUrl" placeholder="URL or YouTube link" class="flex-1 p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+        <button onclick="ingestUrl()" class="bg-indigo-600 text-white px-3 rounded">Ingest URL/YT</button>
+      </div>
+      <input type="file" id="pdfFile" accept=".pdf" onchange="uploadPdf()" class="text-sm"/>
+    </div>
+    <div id="docsList" class="mt-4 space-y-2"></div>
+    <h3 class="font-semibold mt-6 mb-2">Ask a question</h3>
+    <div class="flex gap-2">
+      <input id="ragQ" placeholder="Question" class="flex-1 p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+      <button onclick="ragAsk()" class="bg-indigo-600 text-white px-3 rounded">Ask</button>
+    </div>
+    <div id="ragOut" class="mt-3"></div>`;
+  refreshDocs();
+}
+async function refreshDocs() {
+  const docs = await api("/api/rag/documents");
+  $("docsList").innerHTML = docs.length===0?'<p class="text-slate-500 text-sm">No documents yet.</p>':
+    docs.map(d=>`<div class="flex items-center justify-between bg-white dark:bg-slate-800 p-2 rounded shadow"><span class="text-sm">\u{1F4C4} [${d.source_type}] ${esc(d.title)}</span><button onclick="delDoc(${d.id})" class="text-red-500 text-sm">Delete</button></div>`).join("");
+}
+async function ingestUrl() {
+  const url = $("docUrl").value.trim(); if (!url) return;
+  try { await api("/api/rag/ingest/url", { method:"POST", json:{ url }}); $("docUrl").value=""; refreshDocs(); }
+  catch (e) { alert(e.message); }
+}
+async function uploadPdf() {
+  const f = $("pdfFile").files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  await fetch(API + "/api/rag/ingest/pdf", { method:"POST", headers:{ "Authorization":"Bearer "+token }, body:fd });
+  refreshDocs();
+}
+async function delDoc(id) { await api("/api/rag/documents/"+id, { method:"DELETE" }); refreshDocs(); }
+async function ragAsk() {
+  $("ragOut").innerHTML = '<div class="text-slate-500">Thinking...</div>';
+  const data = await api("/api/rag/ask", { method:"POST", json:{ question:$("ragQ").value }});
+  $("ragOut").innerHTML = `
+    <div class="bg-indigo-50 dark:bg-indigo-900 p-4 rounded prose dark:prose-invert max-w-none">${md(data.answer)}</div>
+    <p class="text-xs text-slate-500 mt-1">Confidence: ${(data.confidence*100).toFixed(0)}%</p>
+    ${(data.citations||[]).map(c=>`<details class="mt-2 bg-white dark:bg-slate-800 p-2 rounded"><summary class="text-sm">[${c.index}] score=${c.score}</summary><p class="text-xs mt-1">${esc(c.text)}</p></details>`).join("")}`;
+}
+
+// ---------- Search ----------
+function tabSearch() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Live web search</h2>
+    <div class="flex gap-2"><input id="sq" placeholder="Query" class="flex-1 p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/><button onclick="doSearch()" class="bg-indigo-600 text-white px-3 rounded">Search</button></div>
+    <div id="sout" class="mt-4"></div>`;
+}
+async function doSearch() {
+  $("sout").innerHTML = '<div class="text-slate-500">Searching...</div>';
+  const data = await api("/api/search", { method:"POST", json:{ query:$("sq").value }});
+  $("sout").innerHTML = `<div class="bg-indigo-50 dark:bg-indigo-900 p-4 rounded prose dark:prose-invert max-w-none">${md(data.summary)}</div>` +
+    `<h3 class="font-semibold mt-4 mb-2">Sources</h3>` +
+    data.results.map((r,i)=>`<div class="bg-white dark:bg-slate-800 p-2 rounded mb-2"><a href="${r.url}" target="_blank" class="text-indigo-600 font-medium">[${i+1}] ${esc(r.title)}</a><p class="text-xs text-slate-500">${esc((r.snippet||"").slice(0,200))}</p></div>`).join("");
+}
+
+// ---------- Notes ----------
+async function tabNotes() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Auto notes</h2>
+    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow space-y-2">
+      <input id="nTopic" placeholder="Topic" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/>
+      <select id="nStyle" class="w-full p-2 border rounded dark:bg-slate-700 dark:border-slate-600"><option>detailed</option><option>short</option><option>bullet</option><option>mindmap</option></select>
+      <textarea id="nRaw" placeholder="Source text" class="w-full p-2 border rounded h-32 dark:bg-slate-700 dark:border-slate-600"></textarea>
+      <button onclick="makeNote()" class="bg-indigo-600 text-white px-4 py-2 rounded">Generate</button>
+    </div>
+    <div id="nOut" class="prose dark:prose-invert max-w-none mt-4"></div>
+    <h3 class="font-semibold mt-6 mb-2">Saved notes</h3>
+    <div id="nList"></div>`;
+  const list = await api("/api/notes");
+  $("nList").innerHTML = list.map(n=>`<details class="bg-white dark:bg-slate-800 p-3 rounded mb-2"><summary class="font-medium">${esc(n.topic)} <span class="text-xs text-slate-500">[${n.summary_type}]</span></summary><div class="prose dark:prose-invert max-w-none mt-2">${md(n.content)}</div></details>`).join("");
+}
+async function makeNote() {
+  const data = await api("/api/notes", { method:"POST", json:{ topic:$("nTopic").value, raw_content:$("nRaw").value, summary_type:$("nStyle").value }});
+  $("nOut").innerHTML = md(data.content);
+}
+
+// ---------- Quiz ----------
+let currentQuiz = null, quizAns = {};
+function tabQuiz() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Adaptive quiz</h2>
+    <div class="flex gap-2"><input id="qTopic" placeholder="Topic" class="flex-1 p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/><button onclick="startQuiz()" class="bg-indigo-600 text-white px-3 rounded">Start</button></div>
+    <div id="qBox" class="mt-4"></div>`;
+}
+async function startQuiz() {
+  $("qBox").innerHTML = '<div class="text-slate-500">Generating...</div>';
+  const q = await api("/api/quiz/generate", { method:"POST", json:{ topic:$("qTopic").value }});
+  currentQuiz = q; quizAns = {};
+  if (!q.questions || !q.questions.length) { $("qBox").innerHTML = '<p class="text-red-500">Could not generate quiz.</p>'; return; }
+  $("qBox").innerHTML = `<p class="text-sm text-slate-500 mb-2">Difficulty: ${q.difficulty}</p>` +
+    q.questions.map((qq,i)=>`<div class="bg-white dark:bg-slate-800 p-3 rounded mb-2"><p class="font-medium">${i+1}. ${esc(qq.q)}</p>${qq.choices.map((c,j)=>`<label class="block text-sm"><input type="radio" name="q${i}" onchange="quizAns[${i}]=${j}"/> ${esc(c)}</label>`).join("")}</div>`).join("") +
+    `<button onclick="submitQuiz()" class="bg-indigo-600 text-white px-4 py-2 rounded">Submit</button><div id="qScore" class="mt-2 font-bold"></div>`;
+}
+async function submitQuiz() {
+  let score = 0;
+  currentQuiz.questions.forEach((q,i)=>{ if (quizAns[i] === q.answer_index) score++; });
+  const total = currentQuiz.questions.length;
+  await api("/api/quiz/submit", { method:"POST", json:{ topic:$("qTopic").value, difficulty:currentQuiz.difficulty, score, total }});
+  $("qScore").textContent = `Score: ${score}/${total}`;
+  currentQuiz.questions.forEach((q,i)=>{
+    const ok = quizAns[i] === q.answer_index;
+    const div = document.createElement("div");
+    div.className = "text-sm mt-1 " + (ok?"text-green-600":"text-red-600");
+    div.textContent = `${i+1}. ${ok?"\u2705":"\u274C"} ${q.explanation || ""}`;
+    $("qScore").after(div);
+  });
+}
+
+// ---------- Flashcards ----------
+async function tabCards() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Flashcards (SM-2)</h2>
+    <div class="flex gap-2 mb-4"><input id="fTopic" placeholder="Topic" class="flex-1 p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/><input id="fN" type="number" value="10" class="w-20 p-2 border rounded dark:bg-slate-700 dark:border-slate-600"/><button onclick="genCards()" class="bg-indigo-600 text-white px-3 rounded">Generate</button></div>
+    <h3 class="font-semibold mb-2">Due now</h3>
+    <div id="cList"></div>`;
+  refreshCards();
+}
+async function genCards() {
+  await api("/api/flashcards/generate", { method:"POST", json:{ topic:$("fTopic").value, n:Number($("fN").value) }});
+  refreshCards();
+}
+async function refreshCards() {
+  const cards = await api("/api/flashcards/due");
+  $("cList").innerHTML = cards.length===0?'<p class="text-slate-500">No cards due. \u{1F389}</p>':
+    cards.map(c=>`<div class="bg-white dark:bg-slate-800 p-3 rounded shadow mb-2"><p class="text-xs text-slate-500">${esc(c.deck)}</p><p class="font-medium">${esc(c.front)}</p><details class="mt-1"><summary class="text-sm cursor-pointer">Show answer</summary><p class="text-sm mt-1">${esc(c.back)}</p><div class="flex gap-1 mt-2">${[[0,"Forgot"],[3,"Hard"],[4,"Good"],[5,"Easy"]].map(([q,l])=>`<button onclick="reviewCard(${c.id},${q})" class="px-2 py-1 text-xs border rounded">${l}</button>`).join("")}</div></details></div>`).join("");
+}
+async function reviewCard(id,q) { await api("/api/flashcards/review", { method:"POST", json:{ card_id:id, quality:q }}); refreshCards(); }
+
+// ---------- Code ----------
+function tabCode() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Coding mentor</h2>
+    <select id="cLang" class="p-2 border rounded mb-2 dark:bg-slate-700 dark:border-slate-600"><option>python</option><option>javascript</option><option>java</option><option>c++</option><option>sql</option></select>
+    <textarea id="cCode" placeholder="Your code" class="w-full p-2 border rounded font-mono h-48 dark:bg-slate-700 dark:border-slate-600"></textarea>
+    <input id="cQ" placeholder="Question / what to fix" class="w-full p-2 border rounded my-2 dark:bg-slate-700 dark:border-slate-600"/>
+    <button onclick="codeAsk()" class="bg-indigo-600 text-white px-4 py-2 rounded">Ask</button>
+    <div id="cOut" class="prose dark:prose-invert max-w-none mt-4"></div>`;
+}
+async function codeAsk() {
+  $("cOut").innerHTML = '<div class="text-slate-500">Thinking...</div>';
+  const data = await api("/api/coding/help", { method:"POST", json:{ language:$("cLang").value, code:$("cCode").value, question:$("cQ").value }});
+  $("cOut").innerHTML = md(data.answer);
+}
+
+// ---------- Pomodoro (client-side) ----------
+let pomoTimer = null, pomoLeft = 0;
+function tabPomo() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Pomodoro</h2>
+    <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow text-center">
+      <input id="pMin" type="number" value="25" class="w-24 p-2 border rounded text-center dark:bg-slate-700 dark:border-slate-600"/>
+      <p class="text-6xl font-mono my-4" id="pDisp">25:00</p>
+      <div class="flex justify-center gap-2">
+        <button onclick="startPomo()" class="bg-indigo-600 text-white px-4 py-2 rounded">Start</button>
+        <button onclick="stopPomo()" class="border px-4 py-2 rounded">Stop</button>
+      </div>
+    </div>`;
+}
+function startPomo() {
+  if (pomoTimer) return;
+  pomoLeft = Number($("pMin").value) * 60;
+  pomoTimer = setInterval(()=>{
+    pomoLeft--;
+    const mm = String(Math.floor(pomoLeft/60)).padStart(2,"0");
+    const ss = String(pomoLeft%60).padStart(2,"0");
+    $("pDisp").textContent = `${mm}:${ss}`;
+    if (pomoLeft<=0) { clearInterval(pomoTimer); pomoTimer=null; $("pDisp").textContent="Done! \u{1F389}"; new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=").play().catch(()=>{}); }
+  }, 1000);
+}
+function stopPomo() { if (pomoTimer) { clearInterval(pomoTimer); pomoTimer=null; $("pDisp").textContent="Stopped"; } }
+
+// ---------- Exam ----------
+function tabExam() {
+  $("main").innerHTML = `
+    <h2 class="text-xl font-semibold mb-3">Exam strategy</h2>
+    <input id="eSubj" placeholder="Subjects (comma-separated)" class="w-full p-2 border rounded mb-2 dark:bg-slate-700 dark:border-slate-600"/>
+    <input id="eDate" placeholder="Exam date" class="w-full p-2 border rounded mb-2 dark:bg-slate-700 dark:border-slate-600"/>
+    <input id="eWeak" placeholder="Weak topics (comma-separated)" class="w-full p-2 border rounded mb-2 dark:bg-slate-700 dark:border-slate-600"/>
+    <button onclick="genExam()" class="bg-indigo-600 text-white px-4 py-2 rounded">Generate</button>
+    <div id="eOut" class="prose dark:prose-invert max-w-none mt-4"></div>`;
+}
+async function genExam() {
+  $("eOut").innerHTML = '<div class="text-slate-500">Building strategy...</div>';
+  const data = await api("/api/exam/strategy", { method:"POST", json:{
+    subjects:$("eSubj").value.split(",").map(s=>s.trim()).filter(Boolean),
+    exam_date:$("eDate").value,
+    weak_topics:$("eWeak").value.split(",").map(s=>s.trim()).filter(Boolean),
+  }});
+  $("eOut").innerHTML = md(data.answer);
+}
+
+render();
+</script>
+</body>
+</html>

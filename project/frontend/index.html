@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StudyMate AI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+<div id="app" class="max-w-3xl mx-auto p-6"></div>
+<script>
+const API = location.origin;
+let token = localStorage.getItem("token") || "";
+const $ = (id) => document.getElementById(id);
+
+function h(html) { $("app").innerHTML = html; }
+
+async function api(path, opts = {}) {
+  opts.headers = opts.headers || {};
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  if (opts.json) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(opts.json); delete opts.json; }
+  const r = await fetch(API + path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+function authView() {
+  h(`
+  <h1 class="text-3xl font-bold mb-6">StudyMate AI</h1>
+  <div class="bg-white p-6 rounded-2xl shadow space-y-3">
+    <input id="email" placeholder="Email" class="w-full border rounded p-2"/>
+    <input id="pw" type="password" placeholder="Password" class="w-full border rounded p-2"/>
+    <input id="grade" placeholder="Grade (e.g., 10)" class="w-full border rounded p-2"/>
+    <div class="flex gap-2">
+      <button onclick="signup()" class="bg-indigo-600 text-white px-4 py-2 rounded">Sign up</button>
+      <button onclick="login()" class="bg-slate-800 text-white px-4 py-2 rounded">Log in</button>
+    </div>
+  </div>`);
+}
+
+async function signup() {
+  const data = await api("/auth/signup", { method:"POST", json:{ email:$("email").value, password:$("pw").value, grade:$("grade").value }});
+  token = data.access_token; localStorage.setItem("token", token); home();
+}
+async function login() {
+  const body = new URLSearchParams({ username:$("email").value, password:$("pw").value });
+  const r = await fetch(API + "/auth/login", { method:"POST", body });
+  if (!r.ok) return alert("Login failed");
+  const data = await r.json(); token = data.access_token; localStorage.setItem("token", token); home();
+}
+function logout(){ token=""; localStorage.removeItem("token"); authView(); }
+
+function home() {
+  h(`
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold">StudyMate AI</h1>
+    <button onclick="logout()" class="text-sm text-slate-500">Log out</button>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
+    <button onclick="tab('plan')" class="bg-white shadow rounded p-3">\ud83d\udcc5 Plan</button>
+    <button onclick="tab('search')" class="bg-white shadow rounded p-3">\ud83d\udd0d Search</button>
+    <button onclick="tab('notes')" class="bg-white shadow rounded p-3">\ud83d\udcdd Notes</button>
+    <button onclick="tab('quiz')" class="bg-white shadow rounded p-3">\ud83e\udde0 Quiz</button>
+  </div>
+  <div id="tab" class="bg-white p-6 rounded-2xl shadow"></div>`);
+  tab("plan");
+}
+
+function tab(name){
+  if(name==="plan") $("tab").innerHTML = `
+    <h2 class="font-bold mb-2">Personalized Study Plan</h2>
+    <input id="subjects" placeholder="Subjects (comma separated)" class="w-full border rounded p-2 mb-2"/>
+    <input id="hpw" type="number" placeholder="Hours per week" class="w-full border rounded p-2 mb-2"/>
+    <textarea id="goals" placeholder="Goals" class="w-full border rounded p-2 mb-2"></textarea>
+    <button onclick="makePlan()" class="bg-indigo-600 text-white px-4 py-2 rounded">Generate</button>
+    <pre id="out" class="whitespace-pre-wrap mt-4 text-sm"></pre>`;
+  if(name==="search") $("tab").innerHTML = `
+    <h2 class="font-bold mb-2">Live Web Search</h2>
+    <input id="q" placeholder="Search topic..." class="w-full border rounded p-2 mb-2"/>
+    <button onclick="doSearch()" class="bg-indigo-600 text-white px-4 py-2 rounded">Search</button>
+    <div id="sout" class="mt-4 text-sm"></div>`;
+  if(name==="notes") $("tab").innerHTML = `
+    <h2 class="font-bold mb-2">Auto Notes</h2>
+    <input id="topic" placeholder="Topic" class="w-full border rounded p-2 mb-2"/>
+    <textarea id="raw" placeholder="Paste source text..." class="w-full border rounded p-2 mb-2 h-32"></textarea>
+    <button onclick="makeNote()" class="bg-indigo-600 text-white px-4 py-2 rounded">Generate notes</button>
+    <pre id="nout" class="whitespace-pre-wrap mt-4 text-sm"></pre>`;
+  if(name==="quiz") $("tab").innerHTML = `
+    <h2 class="font-bold mb-2">Adaptive Quiz</h2>
+    <input id="qtopic" placeholder="Topic" class="w-full border rounded p-2 mb-2"/>
+    <button onclick="makeQuiz()" class="bg-indigo-600 text-white px-4 py-2 rounded">Start</button>
+    <div id="qout" class="mt-4"></div>`;
+}
+
+async function makePlan(){
+  const data = await api("/plan", { method:"POST", json:{ subjects:$("subjects").value.split(",").map(s=>s.trim()), hours_per_week:Number($("hpw").value||5), goals:$("goals").value }});
+  $("out").textContent = data.plan;
+}
+async function doSearch(){
+  const data = await api("/search", { method:"POST", json:{ query:$("q").value }});
+  $("sout").innerHTML = `<div class="mb-3 p-3 bg-slate-100 rounded"><b>Summary</b><pre class="whitespace-pre-wrap">${data.summary||""}</pre></div>` +
+    (data.results||[]).map(r=>`<div class="mb-2"><a class="text-indigo-600 underline" href="${r.url}" target="_blank">${r.title}</a><div class="text-xs text-slate-500">${r.content?.slice(0,200)||""}</div></div>`).join("");
+}
+async function makeNote(){
+  const data = await api("/notes", { method:"POST", json:{ topic:$("topic").value, raw_content:$("raw").value }});
+  $("nout").textContent = data.content;
+}
+let currentQuiz = null;
+async function makeQuiz(){
+  const data = await api("/quiz", { method:"POST", json:{ topic:$("qtopic").value }});
+  currentQuiz = data;
+  $("qout").innerHTML = `<div class="mb-2 text-sm text-slate-500">Difficulty: ${data.difficulty}</div>` +
+    (data.questions||[]).map((q,i)=>`<div class="mb-3"><div class="font-medium">${i+1}. ${q.q}</div>` +
+      q.choices.map((c,j)=>`<label class="block"><input type="radio" name="q${i}" value="${j}"/> ${c}</label>`).join("") + `</div>`).join("") +
+    `<button onclick="submitQuiz()" class="bg-indigo-600 text-white px-4 py-2 rounded">Submit</button><div id="score" class="mt-2"></div>`;
+}
+async function submitQuiz(){
+  let score = 0; const total = currentQuiz.questions.length;
+  currentQuiz.questions.forEach((q,i)=>{
+    const sel = document.querySelector(`input[name=q${i}]:checked`);
+    if(sel && Number(sel.value)===q.answer_index) score++;
+  });
+  $("score").textContent = `Score: ${score}/${total}`;
+  await api("/quiz/submit", { method:"POST", json:{ topic:$("qtopic").value, difficulty:currentQuiz.difficulty, score, total }});
+}
+
+token ? home() : authView();
+</script>
+</body>
+</html>
